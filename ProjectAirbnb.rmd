@@ -1,6 +1,6 @@
 
 ---
-title: "COMP2501 Assignment 3"
+title: "IIMT2641 Project"
 output:
   html_document:
     df_print: paged
@@ -14,18 +14,15 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 
-## Name and UID
 
-Name: Leung Ho Ning
 
-UID: 3035801453
+Group ?
+Leung Ho Ning 3035801453
 
 ---
 
 
 ```{r}
-# Load the package.
-# install.packages("HistData")
 library(dplyr)
 library(ggplot2)
 library(readr)
@@ -43,15 +40,22 @@ data_march <- read_csv("airbnb_data_march_2022.csv")
 data_june <- read_csv("airbnb_data_june_2022.csv")
 data_september <- read_csv("airbnb_data_september_2022.csv")
 data_december <- read_csv("airbnb_data_december_2022.csv")
+data_june_2023 <- read_csv("airbnb_data_june_2023.csv")
+data_september_2023 <- read_csv("airbnb_data_september_2023.csv")
+data_december_2023 <- read_csv("airbnb_data_december_2023.csv")
 
-common_columns <- intersect(intersect(names(data_march), names(data_june)), intersect(names(data_september), names(data_december)))
-# Select common columns from each dataset
+common_columns <- base::intersect(base::intersect(base::intersect(base::intersect(base::intersect(base::intersect(names(data_march), names(data_june)), names(data_september)), names(data_december)), names(data_june_2023)), names(data_september_2023)), names(data_december_2023))
+common_columns<-intersect(intersect(intersect(intersect(intersect(intersect(names(data_march), names(data_june)), names(data_september)), names(data_december)), names(data_june_2023)), names(data_september_2023)), names(data_december_2023))
 data_march_common <- data_march %>% select(all_of(common_columns))
 data_june_common <- data_june %>% select(all_of(common_columns))
 data_september_common <- data_september %>% select(all_of(common_columns))
 data_december_common <- data_december %>% select(all_of(common_columns))
+data_june_2023_common <- data_june_2023 %>% select(all_of(common_columns))
+data_september_2023_common <- data_september_2023 %>% select(all_of(common_columns))
+data_december_2023_common <- data_december_2023 %>% select(all_of(common_columns))
 
-combined_data <- rbind(data_march_common, data_june_common, data_september_common, data_december_common)
+
+combined_data <- rbind(data_march_common, data_june_common, data_september_common, data_december_common, data_june_2023_common, data_september_2023_common, data_december_2023_common)
 combined_data
 ncol(combined_data)
 
@@ -237,12 +241,14 @@ training_data <- final_data_imputed[partition, all_features]
 testing_data <- final_data_imputed[-partition, all_features]
 testing_data_laso <- testing_data
 
+
 ```
 Data Train
 ```{r}
 # Train the random forest model
-rf_model <- randomForest(price ~ ., data = training_data)
-
+library(randomForest)
+rf_model <- randomForest(price ~ ., data = training_data, ntree = 100, importance = TRUE)
+#rf_model <- randomForest(price ~ ., data = training_data)summa
 # Make predictions on the testing dataset
 testing_data$predicted_price <- predict(rf_model, testing_data)
 
@@ -261,6 +267,7 @@ SST
 #R2
 R2 <- 1 - SSE/SST
 R2
+importance(rf_model)
 ```
 
 ```{r}
@@ -302,6 +309,8 @@ importance_table <- importance(rf_model)
 sorted_importance_table <- as.data.frame(importance_table)
 #rename
 colnames(sorted_importance_table) <- c("importance")
+names(sorted_importance_table)[is.na(names(sorted_importance_table))] <- "NA_Name"
+names(sorted_importance_table)[names(sorted_importance_table) == ""] <- "Empty_Name"
 
 
 # order by importance
@@ -325,6 +334,7 @@ ggplot(sorted_importance_table, aes(x = reorder(Variable, importance), y = impor
 library(glmnet)
 colnames(training_data)
 colnames(testing_data)
+
 # Create a matrix from the training dataset
 x <- model.matrix(price ~ ., data = training_data)[,-1]
 y <- training_data$price
@@ -340,7 +350,7 @@ lasso_model <- glmnet(x, y, alpha = 1)
 
 # Make predictions on the testing dataset
 y_pred <- predict(lasso_model, s = lasso_model$lambda.min, newx = x_test)
-
+lasso_predictions <- as.numeric(y_pred)
 # Calculate the performance metrics for lasso regression
 mae_lasso <- mean(abs(lasso_predictions - y_test))
 mse_lasso <- mean((lasso_predictions - y_test)^2)
