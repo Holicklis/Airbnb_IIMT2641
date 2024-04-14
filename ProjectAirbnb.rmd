@@ -1,0 +1,361 @@
+
+---
+title: "COMP2501 Assignment 3"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+
+## Name and UID
+
+Name: Leung Ho Ning
+
+UID: 3035801453
+
+---
+
+
+```{r}
+# Load the package.
+# install.packages("HistData")
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(HistData)
+library(stringr)
+library(tidyverse)
+```
+
+
+Combine the dataset
+
+```{r}
+# Read datasets
+data_march <- read_csv("airbnb_data_march_2022.csv")
+data_june <- read_csv("airbnb_data_june_2022.csv")
+data_september <- read_csv("airbnb_data_september_2022.csv")
+data_december <- read_csv("airbnb_data_december_2022.csv")
+
+common_columns <- intersect(intersect(names(data_march), names(data_june)), intersect(names(data_september), names(data_december)))
+# Select common columns from each dataset
+data_march_common <- data_march %>% select(all_of(common_columns))
+data_june_common <- data_june %>% select(all_of(common_columns))
+data_september_common <- data_september %>% select(all_of(common_columns))
+data_december_common <- data_december %>% select(all_of(common_columns))
+
+combined_data <- rbind(data_march_common, data_june_common, data_september_common, data_december_common)
+combined_data
+ncol(combined_data)
+
+```
+
+Data cleansing, remove the column with less than 70% of value
+```{r}
+# Set the threshold for missing values
+threshold <- 0.7
+
+# Calculate the percentage of missing values for each column
+missing_percentage <- combined_data %>% summarise_all(funs(sum(is.na(.))/n()))
+
+# Identify columns with less than 70% missing values
+columns_to_keep <- names(missing_percentage)[apply(missing_percentage, 2, function(x) x < threshold)]
+
+# Keep only the selected columns
+cleaned_data <- combined_data %>% select(all_of(columns_to_keep))
+cleaned_data
+ncol(cleaned_data)
+```
+To further study the data and to scale down, I decide to take a look in to the property_type, and I decide to keep only first 5 most common propert_type.
+```{r}
+property_type_counts <- cleaned_data %>%
+  group_by(property_type) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+property_type_counts
+
+# Select the top 5 property types
+top_5_property_types <- property_type_counts %>%
+  top_n(5, count) %>%
+  pull(property_type)
+
+# Filter the dataset to include only the top 5 property types
+filtered_data <- cleaned_data %>%
+  filter(property_type %in% top_5_property_types)
+filtered_data
+```
+
+We can see the amenities are just a list of list, as it is some pre-set type from airbnb, they should be shared in common format, we should turn them into a binary variables, if the amentities appears in more than 10% of the record, it should have representing meaning.
+```{r}
+
+filtered_data
+# Extract unique amenities
+amenities_freq <- filtered_data %>%
+  pull(amenities) %>%
+  str_extract_all('(?<=\")\\w[^,"]+') %>%
+  unlist() %>%
+  table() %>%
+  as.data.frame() %>%
+  arrange(desc(Freq))
+amenities_freq
+
+# Calculate the 10% threshold
+threshold <- nrow(filtered_data) * 0.10
+
+# Select amenities that appear in at least 10% of the listings
+selected_amenities <- amenities_freq %>%
+  filter(Freq >= threshold) %>% select(1)
+
+
+selected_amenities[] <- data.frame(lapply(selected_amenities, as.character))
+selected_amenities= as.list(selected_amenities)
+
+final_data <- filtered_data
+selected_amenities<-selected_amenities[1]
+selected_amenities<-unlist(selected_amenities)
+class(selected_amenities)
+
+for (amenity in selected_amenities) {
+  final_data <- final_data %>%
+    mutate(!!amenity := ifelse(str_detect(amenities, amenity), TRUE, FALSE))
+}
+
+final_data <- final_data %>%
+  select(-amenities)
+
+final_data
+class(selected_amenities)
+```
+
+```{r}
+
+selected_amenities <- gsub(" ", "_", selected_amenities)
+colnames(final_data) <- gsub(" ", "_", colnames(final_data))
+
+```
+
+Features Engineering
+
+Clean some unused variable to make the data cleaner
+```{r}
+
+  final_data_reduced <- final_data %>% select(-neighbourhood) %>% select(-latitude) %>% select(-longitude)
+  final_data_reduced <- final_data_reduced %>% select(-host_thumbnail_url) %>% select(-host_picture_url)
+  final_data_reduced <- final_data_reduced %>% select(-scrape_id)%>% select(-picture_url)
+  final_data_reduced
+```
+
+Convert price to numeric and remove missing rows wihtout price
+```{r}
+
+# Convert price column to numeric
+final_data_reduced$price <- as.numeric(gsub("[^0-9.]", "", final_data_reduced$price))
+final_data_reduced
+# Remove rows with missing price values
+final_data_reduced <- final_data_reduced %>% drop_na(price)
+
+final_data_reduced
+
+
+
+
+
+
+selected_features <- c("host_response_time", "host_acceptance_rate", "host_is_superhost", "host_listings_count", "host_identity_verified", "neighbourhood_cleansed", "property_type", "room_type", "accommodates", "bedrooms", "beds", "price", "number_of_reviews", "review_scores_rating","minimum_nights_avg_ntm", "maximum_nights_avg_ntm")
+
+selected_features_old<- c("host_acceptance_rate", "host_is_superhost", "host_identity_verified", "neighbourhood_cleansed", "property_type", "room_type", "accommodates", "bedrooms", "beds", "price", "number_of_reviews", "review_scores_rating")
+
+all_features <- c(selected_features, selected_amenities)
+all_features
+#all_features <- selected_features
+
+```
+Here is the special point, as I observe that some price range inputted is monthly price (unreasonable price range), to increase the accuracy, I would remove the outlier price range.
+
+remove outlier price
+```{r}
+highestrow <- final_data_reduced %>% arrange(desc(price)) %>% head(10)
+highestrow
+# Remove rows with price with top 2% highest values and bottom 2% lowest values
+final_data_reduced <- final_data_reduced %>%
+  filter(price > quantile(price, 0.02) & price < quantile(price, 0.98))
+final_data_reduced
+
+```
+Now basically cleaned the data, try to work on the prediction model.Firstly we will try the random forest model
+```{r}
+library(randomForest)
+library(caret)
+```
+To fill back empty cells for the training of the model
+```{r}
+set.seed(42)
+# Create a partition of the data
+
+
+
+final_data_selected <- final_data_reduced[all_features]
+final_data_selected$host_acceptance_rate <- as.numeric(gsub("[^0-9.]", "", final_data_selected$host_acceptance_rate))
+final_data_selected$host_acceptance_rate <- final_data_selected$host_acceptance_rate/100
+
+final_data_selected
+
+#convert all character to factor
+final_data_selected <- final_data_selected %>% mutate_if(is.character, as.factor)
+
+
+#replace all na in logical variable with false, all column
+final_data_selected <- final_data_selected %>% mutate_if(is.logical, ~replace(., is.na(.), FALSE))
+
+
+
+
+final_data_imputed <- final_data_selected
+
+#impute missing value with median
+final_data_imputed <- final_data_imputed %>% mutate_if(is.numeric, ~replace(., is.na(.), median(., na.rm = TRUE)))
+
+#drop na
+final_data_imputed <- final_data_imputed %>% drop_na()
+
+
+final_data_imputed
+```
+
+Partitioning
+```{r}
+
+partition <- caret::createDataPartition(y = final_data_imputed$price, p = 0.80, list = FALSE)
+training_data <- final_data_imputed[partition, all_features]
+testing_data <- final_data_imputed[-partition, all_features]
+testing_data_laso <- testing_data
+
+```
+Data Train
+```{r}
+# Train the random forest model
+rf_model <- randomForest(price ~ ., data = training_data)
+
+# Make predictions on the testing dataset
+testing_data$predicted_price <- predict(rf_model, testing_data)
+
+
+
+```
+
+
+```{r}
+#SSE
+SSE <- sum((testing_data$predicted_price - testing_data$price)^2)
+SSE
+#SST
+SST <- sum((testing_data$price - mean(testing_data$price))^2)
+SST
+#R2
+R2 <- 1 - SSE/SST
+R2
+```
+
+```{r}
+# Calculate the performance metrics
+mae <- mean(abs(testing_data$predicted_price - testing_data$price))
+mse <- mean((testing_data$predicted_price - testing_data$price)^2)
+rmse <- sqrt(mse)
+rsquared <- R2
+
+#normailzed rmse in range 0-1
+
+
+
+#normalized RMSE max price-min price
+normalized_rmse <- rmse/(max(testing_data$price)-min(testing_data$price))
+
+# Print the performance metrics
+cat("Mean Absolute Error (MAE):", mae, "\n")
+cat("Mean Squared Error (MSE):", mse, "\n")
+cat("Root Mean Squared Error (RMSE):", rmse, "\n")
+cat("R-squared:", rsquared, "\n")
+cat("Normalized RMSE:", normalized_rmse, "\n")
+```
+
+```{r}
+```
+
+Let's further inspect our random forst model
+```{r}
+# Make predictions for the first 5 records in the testing dataset
+all_test_data <-testing_data
+all_test_data$predicted_price <- predict(rf_model, all_test_data)
+subset_test_data <- testing_data[1:5, ]
+subset_test_data$predicted_price <- predict(rf_model, subset_test_data)
+subset_test_data
+
+importance_table <- importance(rf_model)
+
+sorted_importance_table <- as.data.frame(importance_table)
+#rename
+colnames(sorted_importance_table) <- c("importance")
+
+
+# order by importance
+sorted_importance_table <- sorted_importance_table %>% arrange(desc(importance))
+# Display the sorted importance table
+
+sorted_importance_table$Variable <- row.names(sorted_importance_table)
+sorted_importance_table
+ggplot(sorted_importance_table, aes(x = reorder(Variable, importance), y = importance)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = "Variable",
+       y = "IncNodePurity",
+       title = "Variable Importance in Random Forest Model") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+<!-- Let's do the lasso regression -->
+```{r}
+library(glmnet)
+colnames(training_data)
+colnames(testing_data)
+# Create a matrix from the training dataset
+x <- model.matrix(price ~ ., data = training_data)[,-1]
+y <- training_data$price
+x_test <- model.matrix(price ~ ., data = testing_data)[,-1]
+y_test <- testing_data$price
+
+#Stamdardize the matrix
+x <- scale(x)
+x_test <- scale(x_test)
+
+# Train the lasso regression model
+lasso_model <- glmnet(x, y, alpha = 1)
+
+# Make predictions on the testing dataset
+y_pred <- predict(lasso_model, s = lasso_model$lambda.min, newx = x_test)
+
+# Calculate the performance metrics for lasso regression
+mae_lasso <- mean(abs(lasso_predictions - y_test))
+mse_lasso <- mean((lasso_predictions - y_test)^2)
+rmse_lasso <- sqrt(mse_lasso) 
+rsquared_lasso <- 1 - (sum((y_test - lasso_predictions)^2) / sum((y_test - mean(y_test))^2))
+
+#normalized RMSE max price-min price
+normalized_rmse_lasso <- rmse_lasso/(max(y_test)-min(y_test))
+
+# Print the performance metrics
+cat("Lasso Regression:\n")
+cat("Mean Absolute Error (MAE):", mae_lasso, "\n")
+cat("Mean Squared Error (MSE):", mse_lasso, "\n")
+cat("Root Mean Squared Error (RMSE):", rmse_lasso, "\n")
+cat("R-squared:", rsquared_lasso, "\n")
+cat("Normalized RMSE:", normalized_rmse_lasso, "\n")
+
+```
