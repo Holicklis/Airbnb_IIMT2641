@@ -29,6 +29,11 @@ library(readr)
 library(HistData)
 library(stringr)
 library(tidyverse)
+library(maps)
+library(sf)
+library(mapview)
+library(ggrepel)
+library(cartogram)
 ```
 
 
@@ -56,7 +61,8 @@ data_december_2023_common <- data_december_2023 %>% select(all_of(common_columns
 
 
 combined_data <- rbind(data_march_common, data_june_common, data_september_common, data_december_common, data_june_2023_common, data_september_2023_common, data_december_2023_common)
-combined_data
+# combined_data
+head(combined_data)
 ncol(combined_data)
 
 ```
@@ -77,13 +83,19 @@ cleaned_data <- combined_data %>% select(all_of(columns_to_keep))
 cleaned_data
 ncol(cleaned_data)
 ```
-To further study the data and to scale down, I decide to take a look in to the property_type, and I decide to keep only first 5 most common propert_type.
+To further study the data and to scale down, I decide to take a look in to the property_type, and I decide to keep only first 5 most common property_type.
 ```{r}
 property_type_counts <- cleaned_data %>%
   group_by(property_type) %>%
   summarise(count = n()) %>%
   arrange(desc(count))
 property_type_counts
+
+### Frequency bar chart
+#ggplot(property_type_counts) +
+  #geom_col(aes(y=property_type, x=count)) +
+  #theme()
+  #ggtitle("Distribution of properties based on its type")
 
 # Select the top 5 property types
 top_5_property_types <- property_type_counts %>%
@@ -94,9 +106,109 @@ top_5_property_types <- property_type_counts %>%
 filtered_data <- cleaned_data %>%
   filter(property_type %in% top_5_property_types)
 filtered_data
+
+```
+Convert price to numeric and remove missing rows without price
+```{r}
+
+# Convert price column to numeric
+filtered_data$price <- as.numeric(gsub("[^0-9.]", "", filtered_data$price))
+filtered_data
+# Remove rows with missing price values
+filtered_data <- filtered_data %>% drop_na(price)
+
+filtered_data
+```
+Here is the special point, as I observe that some price range inputted is monthly price (unreasonable price range), to increase the accuracy, I would remove the outlier price range.
+
+remove outlier price
+```{r}
+highestrow <- filtered_data %>% arrange(desc(price)) %>% head(10)
+highestrow
+# Remove rows with price with top 2% highest values and bottom 2% lowest values
+filtered_data <- filtered_data %>%
+  filter(price > quantile(price, 0.02) & price < quantile(price, 0.98))
+filtered_data
+
 ```
 
-We can see the amenities are just a list of list, as it is some pre-set type from airbnb, they should be shared in common format, we should turn them into a binary variables, if the amentities appears in more than 10% of the record, it should have representing meaning.
+EDA - Property location
+```{r}
+ggplot(filtered_data, aes(neighbourhood_cleansed, fill = property_type)) + 
+  geom_histogram(stat = "count", position = 'fill') + 
+  theme_minimal(base_size = 13)+ xlab("") + ylab("") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Proportion of Property Type in Each District") +
+  scale_fill_discrete(name = "Property Type")
+
+```
+
+EDA - Distribution of price by location
+```{r}
+district_data <- filtered_data |> group_by(neighbourhood_cleansed) |> summarise(price = round(mean(price), 2))
+
+ggplot(filtered_data, aes(price)) +
+  geom_histogram(bins = 30, aes(y = ..density..), fill = "steelblue") +
+  geom_density(alpha = 0.6, fill = "black", color = FALSE) +
+  geom_text(data = district_data, y = 0.003, aes(x = 2000, label = paste("Mean = $", price)), color = "black", size = 3) +
+  facet_wrap( ~ neighbourhood_cleansed) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_discrete(name = "Property Type") +
+  labs(title = "Distribution of Price by Neighbourhood")
+
+```
+
+EDA - price property accomodates
+```{r}
+filtered_data |> ggplot(aes(beds, price, color = property_type, size = accommodates, alpha = 0.05)) +
+  geom_point(na.rm = TRUE) +
+  ggtitle("Number of beds vs. price, by Property Type & Accommodation Capacity") +
+  xlab("# of Beds") +
+  ylab("Price (HKD)") +
+  scale_color_discrete(name = "Property Type") +
+  guides(alpha = FALSE) +
+  scale_size_continuous(name = "Accommodation Capacity") +
+  theme_classic()
+
+```
+
+EDA - summary stat for numerical var
+```{r}
+# Subset numeric columns
+num_var <- filtered_data[, sapply(filtered_data, is.numeric)]
+
+# Subset remaining (categorical) columns
+cat_var <- filtered_data[, !(names(filtered_data) %in% names(num_var))]
+
+# Drop unique identifier columns from subsets
+num_var <- subset(num_var, select = c(accommodates, bedrooms, beds, price, review_scores_rating, reviews_per_month))
+cat_var <- subset(cat_var, select = c(host_response_time, host_response_rate, host_acceptance_rate, host_is_superhost, host_verifications, host_identity_verified))
+# Get summary stats for numerical variables
+summary(num_var)
+col.sd <- apply(na.omit(num_var), 2, sd)
+col.sd
+
+
+```
+
+EDA - review
+```{r}
+# location
+ggplot(filtered_data, aes(x = review_scores_location, y = review_scores_rating, color=price)) + 
+  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE)
+
+# accuracy
+ggplot(filtered_data, aes(x = review_scores_accuracy, y = review_scores_rating, color=price)) + 
+  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE)
+
+# cleanliness
+ggplot(filtered_data, aes(x = review_scores_cleanliness, y = review_scores_rating, color=price)) + 
+  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE)
+
+```
+
+
+We can see the amenities are just a list of list, as it is some pre-set type from airbnb, they should be shared in common format, we should turn them into a binary variables, if the amenities appears in more than 10% of the record, it should have representing meaning.
 ```{r}
 
 filtered_data
@@ -117,6 +229,16 @@ threshold <- nrow(filtered_data) * 0.10
 selected_amenities <- amenities_freq %>%
   filter(Freq >= threshold) %>% select(1)
 
+### amenities frequency chart
+top0.1_amenities <- amenities_freq |>  filter(Freq >= threshold)
+ggplot(top0.1_amenities, aes(x = ., y = Freq)) +
+  geom_col() +
+  geom_text_repel(aes(label = Freq)) +
+  ggtitle("Frequency of amenities") +
+  xlab("Amenities") +
+  ylab("Frequency") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
 
 selected_amenities[] <- data.frame(lapply(selected_amenities, as.character))
 selected_amenities= as.list(selected_amenities)
@@ -128,21 +250,28 @@ class(selected_amenities)
 
 for (amenity in selected_amenities) {
   final_data <- final_data %>%
-    mutate(!!amenity := ifelse(str_detect(amenities, amenity), TRUE, FALSE))
+    mutate(!!amenity := ifelse(str_detect(amenities, amenity), 1, 0))
 }
 
 final_data <- final_data %>%
   select(-amenities)
 
-final_data
+head(final_data)
 class(selected_amenities)
+
+### Before & After conversion for amenities
+filtered_data |> select(id,amenities) |> slice(1)
+final_data |>  select(id, Wifi:"Shower gel") |> slice(1)
+
 ```
 
 ```{r}
 
-selected_amenities <- gsub(" ", "_", selected_amenities)
-colnames(final_data) <- gsub(" ", "_", colnames(final_data))
+selected_amenities <- gsub("[-. *()]", "_", selected_amenities)
+colnames(final_data) <- gsub("[-. *()]", "_", colnames(final_data))
 
+selected_amenities
+colnames(final_data)
 ```
 
 Features Engineering
@@ -153,24 +282,12 @@ Clean some unused variable to make the data cleaner
   final_data_reduced <- final_data %>% select(-neighbourhood) %>% select(-latitude) %>% select(-longitude)
   final_data_reduced <- final_data_reduced %>% select(-host_thumbnail_url) %>% select(-host_picture_url)
   final_data_reduced <- final_data_reduced %>% select(-scrape_id)%>% select(-picture_url)
-  final_data_reduced
+  head(final_data_reduced)
+  colnames(final_data_reduced)
 ```
 
-Convert price to numeric and remove missing rows wihtout price
+
 ```{r}
-
-# Convert price column to numeric
-final_data_reduced$price <- as.numeric(gsub("[^0-9.]", "", final_data_reduced$price))
-final_data_reduced
-# Remove rows with missing price values
-final_data_reduced <- final_data_reduced %>% drop_na(price)
-
-final_data_reduced
-
-
-
-
-
 
 selected_features <- c("host_response_time", "host_acceptance_rate", "host_is_superhost", "host_listings_count", "host_identity_verified", "neighbourhood_cleansed", "property_type", "room_type", "accommodates", "bedrooms", "beds", "price", "number_of_reviews", "review_scores_rating","minimum_nights_avg_ntm", "maximum_nights_avg_ntm")
 
@@ -179,18 +296,6 @@ selected_features_old<- c("host_acceptance_rate", "host_is_superhost", "host_ide
 all_features <- c(selected_features, selected_amenities)
 all_features
 #all_features <- selected_features
-
-```
-Here is the special point, as I observe that some price range inputted is monthly price (unreasonable price range), to increase the accuracy, I would remove the outlier price range.
-
-remove outlier price
-```{r}
-highestrow <- final_data_reduced %>% arrange(desc(price)) %>% head(10)
-highestrow
-# Remove rows with price with top 2% highest values and bottom 2% lowest values
-final_data_reduced <- final_data_reduced %>%
-  filter(price > quantile(price, 0.02) & price < quantile(price, 0.98))
-final_data_reduced
 
 ```
 Now basically cleaned the data, try to work on the prediction model.Firstly we will try the random forest model
@@ -241,9 +346,75 @@ training_data <- final_data_imputed[partition, all_features]
 testing_data <- final_data_imputed[-partition, all_features]
 testing_data_laso <- testing_data
 
-
 ```
 Data Train
+
+Linear Regression
+```{r}
+training_data_lm <- training_data
+testing_data_lm <- testing_data
+
+lm1 <- lm(price ~., data = training_data_lm)
+summary(lm1)
+
+training_data_reduced_lm <- select(training_data_lm, -"room_type")
+lm2 <- lm(price ~ ., data = training_data_reduced_lm)
+# summary(lm2)
+library(car)
+vif(lm2)
+
+testing_data_lm$predicted_price <- predict(lm1, testing_data_lm)
+
+testing_data_reduced_lm <- select(testing_data, -"room_type")
+testing_data_reduced_lm$predicted_price <- predict(lm2, testing_data_lm)
+
+#SSE
+SSE_lm <- sum((testing_data_lm$predicted_price - testing_data_lm$price)^2)
+SSE_lm
+#SST
+SST_lm <- sum((testing_data_lm$price - mean(testing_data_lm$price))^2)
+SST_lm
+#R2
+R2_lm <- 1 - SSE/SST
+R2_lm
+```
+
+for testing_data_reduced
+```{R}
+#SSE
+paste("for reduced testing data:")
+SSE_lm2 <- sum((testing_data_reduced_lm$predicted_price - testing_data_reduced_lm$price)^2)
+SSE_lm2
+#SST
+SST_lm2 <- sum((testing_data_reduced_lm$price - mean(testing_data_reduced_lm$price))^2)
+SST_lm2
+#R2
+R2_lm2 <- 1 - SSE_lm2/SST_lm2
+R2_lm2
+# Calculate the performance metrics
+mae_lm <- mean(abs(testing_data_lm$predicted_price - testing_data_lm$price))
+mse_lm <- mean((testing_data_lm$predicted_price - testing_data_lm$price)^2)
+rmse_lm <- sqrt(mse_lm)
+rsquared_lm <- R2_lm2
+
+```
+
+for testing_data_reduced
+```{R}
+#normailzed rmse in range 0-1
+#normalized RMSE max price-min price
+normalized_rmse_lm <- rmse_lm/(max(testing_data_lm$price)-min(testing_data_lm$price))
+
+# Print the performance metrics
+cat("Mean Absolute Error (MAE):", mae_lm, "\n")
+cat("Mean Squared Error (MSE):", mse_lm, "\n")
+cat("Root Mean Squared Error (RMSE):", rmse_lm, "\n")
+cat("R-squared:", rsquared_lm, "\n")
+cat("Normalized RMSE:", normalized_rmse_lm, "\n")
+
+```
+
+RF
 ```{r}
 # Train the random forest model
 library(randomForest)
@@ -253,43 +424,42 @@ rf_model <- randomForest(price ~ ., data = training_data, ntree = 100, importanc
 testing_data$predicted_price <- predict(rf_model, testing_data)
 
 
-
 ```
 
 
 ```{r}
 #SSE
-SSE <- sum((testing_data$predicted_price - testing_data$price)^2)
-SSE
+SSE_rf <- sum((testing_data$predicted_price - testing_data$price)^2)
+SSE_rf
 #SST
-SST <- sum((testing_data$price - mean(testing_data$price))^2)
-SST
+SST_rf <- sum((testing_data$price - mean(testing_data$price))^2)
+SST_rf
 #R2
-R2 <- 1 - SSE/SST
-R2
+R2_rf <- 1 - SSE_rf/SST_rf
+R2_rf
 importance(rf_model)
 ```
 
 ```{r}
 # Calculate the performance metrics
-mae <- mean(abs(testing_data$predicted_price - testing_data$price))
-mse <- mean((testing_data$predicted_price - testing_data$price)^2)
-rmse <- sqrt(mse)
-rsquared <- R2
+mae_rf <- mean(abs(testing_data$predicted_price - testing_data$price))
+mse_rf <- mean((testing_data$predicted_price - testing_data$price)^2)
+rmse_rf <- sqrt(mse_rf)
+rsquared_rf <- R2_rf
 
 #normailzed rmse in range 0-1
 
 
 
 #normalized RMSE max price-min price
-normalized_rmse <- rmse/(max(testing_data$price)-min(testing_data$price))
+normalized_rmse_rf <- rmse_rf/(max(testing_data$price)-min(testing_data$price))
 
 # Print the performance metrics
-cat("Mean Absolute Error (MAE):", mae, "\n")
-cat("Mean Squared Error (MSE):", mse, "\n")
-cat("Root Mean Squared Error (RMSE):", rmse, "\n")
-cat("R-squared:", rsquared, "\n")
-cat("Normalized RMSE:", normalized_rmse, "\n")
+cat("Mean Absolute Error (MAE):", mae_rf, "\n")
+cat("Mean Squared Error (MSE):", mse_rf, "\n")
+cat("Root Mean Squared Error (RMSE):", rmse_rf, "\n")
+cat("R-squared:", rsquared_rf, "\n")
+cat("Normalized RMSE:", normalized_rmse_rf, "\n")
 ```
 
 ```{r}
