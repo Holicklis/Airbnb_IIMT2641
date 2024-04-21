@@ -16,8 +16,12 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 
-Group ?
-Leung Ho Ning 3035801453
+Group 11
+leung ho ning 3035801453
+chu man yan 3035941318
+lee kwan ho 3035941470
+luk sin yu angel 3035941540
+wong hei wan hayden 3035801427
 
 ---
 
@@ -375,7 +379,7 @@ SSE_lm
 SST_lm <- sum((testing_data_lm$price - mean(testing_data_lm$price))^2)
 SST_lm
 #R2
-R2_lm <- 1 - SSE/SST
+R2_lm <- 1 - SSE_lm/SST_lm
 R2_lm
 ```
 
