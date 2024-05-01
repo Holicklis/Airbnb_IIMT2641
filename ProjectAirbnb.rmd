@@ -466,8 +466,7 @@ cat("R-squared:", rsquared_rf, "\n")
 cat("Normalized RMSE:", normalized_rmse_rf, "\n")
 ```
 
-```{r}
-```
+
 
 Let's further inspect our random forst model
 ```{r}
@@ -478,30 +477,43 @@ subset_test_data <- testing_data[1:5, ]
 subset_test_data$predicted_price <- predict(rf_model, subset_test_data)
 subset_test_data
 
-importance_table <- importance(rf_model)
+importance_table <- importance(rf_model)[, "%IncMSE"]
 
 sorted_importance_table <- as.data.frame(importance_table)
-#rename
-colnames(sorted_importance_table) <- c("importance")
-names(sorted_importance_table)[is.na(names(sorted_importance_table))] <- "NA_Name"
-names(sorted_importance_table)[names(sorted_importance_table) == ""] <- "Empty_Name"
-
-
-# order by importance
-sorted_importance_table <- sorted_importance_table %>% arrange(desc(importance))
-# Display the sorted importance table
-
 sorted_importance_table$Variable <- row.names(sorted_importance_table)
-sorted_importance_table
-ggplot(sorted_importance_table, aes(x = reorder(Variable, importance), y = importance)) +
+sorted_importance_table <- sorted_importance_table %>% arrange(desc(importance_table))
+
+ggplot(sorted_importance_table, aes(x = reorder(Variable, importance_table), y = importance_table)) +
   geom_bar(stat = "identity", fill = "steelblue") +
   coord_flip() +
   theme_minimal() +
-  labs(x = "Variable",
-       y = "IncNodePurity",
-       title = "Variable Importance in Random Forest Model") +
+  labs(x = "Variable", y = "% IncMSE", title = "Variable Importance in Random Forest Model") +
   theme(plot.title = element_text(hjust = 0.5))
+
+importance_matrix <- importance(rf_model)
+
+# Convert to a dataframe with meaningful column names
+importance_df <- as.data.frame(importance_matrix)
+importance_df$Variable <- row.names(importance_df)
+importance_df <- importance_df %>% rename("%IncMSE" = "%IncMSE", "IncNodePurity" = "IncNodePurity")
+
+# Sort by %IncMSE
+importance_df <- importance_df %>% arrange(desc(`%IncMSE`))
+importance_df
+
 ```
+
+```{r}
+
+#show average price of neighbourhood_cleansed, with average accomodates, beds, and count the max property type
+neighbourhood_price <- final_data_imputed %>%
+  group_by(neighbourhood_cleansed) %>%
+  summarise(avg_price = mean(price), avg_accommodates = mean(accommodates), avg_beds = mean(beds), max_property_type = names(which.max(table(property_type))))
+
+neighbourhood_price
+
+```
+
 
 <!-- Let's do the lasso regression -->
 ```{r}
