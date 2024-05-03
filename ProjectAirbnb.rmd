@@ -33,11 +33,9 @@ library(readr)
 library(HistData)
 library(stringr)
 library(tidyverse)
-library(maps)
-library(sf)
-library(mapview)
 library(ggrepel)
-library(cartogram)
+library(patchwork)
+
 ```
 
 
@@ -195,19 +193,63 @@ col.sd
 
 ```
 
-EDA - review
+EDA - review_score
 ```{r}
-# location
-ggplot(filtered_data, aes(x = review_scores_location, y = review_scores_rating, color=price)) + 
-  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE)
-
+correlations <- data.frame(
+  Accuracy = cor(filtered_data$review_scores_accuracy, filtered_data$review_scores_rating, use = "complete.obs"),
+  Cleanliness = cor(filtered_data$review_scores_cleanliness, filtered_data$review_scores_rating, use = "complete.obs"),
+  Checkin = cor(filtered_data$review_scores_checkin, filtered_data$review_scores_rating, use = "complete.obs"),
+  Communication = cor(filtered_data$review_scores_communication, filtered_data$review_scores_rating, use = "complete.obs"),
+  Location = cor(filtered_data$review_scores_location, filtered_data$review_scores_rating, use = "complete.obs"),
+  Value = cor(filtered_data$review_scores_value, filtered_data$review_scores_rating, use = "complete.obs")
+)
 # accuracy
-ggplot(filtered_data, aes(x = review_scores_accuracy, y = review_scores_rating, color=price)) + 
-  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE)
+p_acc <- ggplot(filtered_data, aes(x = review_scores_accuracy, y = review_scores_rating, color=price)) + 
+  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE) +
+  geom_text(data = correlations, y = 0.2, aes(x = 4, label = paste("Correlation = ", Accuracy)), color = "black", size = 3) +
+  scale_color_continuous(name = "Price")
 
 # cleanliness
-ggplot(filtered_data, aes(x = review_scores_cleanliness, y = review_scores_rating, color=price)) + 
-  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE)
+p_clean <- ggplot(filtered_data, aes(x = review_scores_cleanliness, y = review_scores_rating, color=price)) + 
+  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE) +
+  geom_text(data = correlations, y = 0.2, aes(x = 4, label = paste("Correlation = ", Accuracy)), color = "black", size = 3) +
+  scale_color_continuous(name = "Price")
+
+# checkin
+p_check <- ggplot(filtered_data, aes(x = review_scores_checkin, y = review_scores_rating, color=price)) + 
+  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE) +
+  geom_text(data = correlations, y = 0.2, aes(x = 4, label = paste("Correlation = ", Accuracy)), color = "black", size = 3) +
+  scale_color_continuous(name = "Price")
+
+# communication
+p_com <- ggplot(filtered_data, aes(x = review_scores_communication, y = review_scores_rating, color=price)) + 
+  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE) +
+  geom_text(data = correlations, y = 0.2, aes(x = 4, label = paste("Correlation = ", Accuracy)), color = "black", size = 3) +
+  scale_color_continuous(name = "Price")
+
+# location
+p_loc <- ggplot(filtered_data, aes(x = review_scores_location, y = review_scores_rating, color=price)) + 
+  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE) +
+  geom_text(data = correlations, y = 0.2, aes(x = 4, label = paste("Correlation = ", Accuracy)), color = "black", size = 3) +
+  scale_color_continuous(name = "Price")
+
+# value
+p_val <- ggplot(filtered_data, aes(x = review_scores_value, y = review_scores_rating, color=price)) + 
+  geom_jitter(size = 0.4, alpha = 0.2, na.rm = TRUE) +
+  geom_text(data = correlations, y = 0.2, aes(x = 4, label = paste("Correlation = ", Accuracy)), color = "black", size = 3) +
+  scale_color_continuous(name = "Price")
+
+# combine graphs
+#plot_grid <- (p_acc | p_clean | p_check) /
+#             (p_com | p_loc | p_val)
+
+#plot_grid <- ggsave("balanced_composite_plot.png", plot_grid, width = 12, height = 8, units = "in", dpi = 300)
+#plot_grid
+
+score_price <- ggplot(filtered_data, aes(x = price, y = review_scores_rating, size = number_of_reviews)) +
+  geom_point(alpha = 0.5) +
+  labs(x = "Price", y = "Review Score", size = "Number of Reviews", title = "Review Score vs. Price")
+score_price
 
 ```
 
@@ -302,10 +344,11 @@ all_features
 #all_features <- selected_features
 
 ```
-Now basically cleaned the data, try to work on the prediction model.Firstly we will try the random forest model
+Now basically cleaned the data, try to work on the prediction model.Firstly we will try the linear regression, then random forest model
 ```{r}
 library(randomForest)
 library(caret)
+library(car)
 ```
 To fill back empty cells for the training of the model
 ```{r}
@@ -383,7 +426,6 @@ R2_lm <- 1 - SSE_lm/SST_lm
 R2_lm
 ```
 
-for testing_data_reduced
 ```{R}
 #SSE
 paste("for reduced testing data:")
@@ -403,7 +445,6 @@ rsquared_lm <- R2_lm2
 
 ```
 
-for testing_data_reduced
 ```{R}
 #normailzed rmse in range 0-1
 #normalized RMSE max price-min price
@@ -418,7 +459,7 @@ cat("Normalized RMSE:", normalized_rmse_lm, "\n")
 
 ```
 
-RF
+Random Forest Model
 ```{r}
 # Train the random forest model
 library(randomForest)
